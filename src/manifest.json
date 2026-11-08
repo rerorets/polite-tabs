@@ -1,37 +1,29 @@
 {
   "manifest_version": 3,
-  "name": "Acid Tabs",
-  "description": "Auto-Grouping Magic for your Tabs",
-  "options_page": "options.html",
-  "background": { "service_worker": "background.bundle.js" },
+  "name": "Polite Tabs",
+  "minimum_chrome_version": "120",
+  "homepage_url": "https://github.com/rerorets/polite-tabs",
+  "background": { "service_worker": "background.js", "type": "module" },
   "action": {
     "default_popup": "popup.html",
-    "default_icon": "acid-32.png"
+    "default_icon": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png" }
   },
+  "options_ui": { "page": "options.html", "open_in_tab": true },
   "icons": {
-    "128": "acid-128.png"
+    "16": "icon-16.png",
+    "48": "icon-48.png",
+    "96": "icon-96.png",
+    "128": "icon-128.png"
   },
-  "permissions": [
-    "storage",
-    "webNavigation",
-    "tabs",
-    "tabGroups"
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["content.styles.css", "acid-128.png", "acid-32.png"],
-      "matches": []
-    }
-  ],
-  "content_security_policy": {
-    "extension-pages": "script-src 'self' https://fonts.googleapis.com/* https://*.firebaseio.com; object-src 'self'"
-  },
+  "permissions": ["storage", "webNavigation", "tabs", "tabGroups"],
   "commands": {
     "toggle-collapse": {
-      "suggested_key": {
-        "default": "Alt+Shift+C"
-      },
-      "description": "Toggle collapse"
+      "suggested_key": { "default": "Alt+Shift+C" },
+      "description": "グループをまとめて折りたたむ・展開する"
+    },
+    "group-now": {
+      "suggested_key": { "default": "Alt+Shift+G" },
+      "description": "今すぐタブを振り分ける"
     }
   }
 }
