@@ -8,6 +8,7 @@
 
 # production
 /build
+/polite-tabs.zip
 
 # misc
 .DS_Store
