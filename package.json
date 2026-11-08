@@ -1,6 +1,6 @@
 {
   "name": "polite-tabs",
-  "version": "7.0.0",
+  "version": "1.0.0",
   "private": true,
   "description": "URL やページのタイトルで、タブを自動でグループにまとめます。ほかの拡張が作ったグループには触りません。",
   "license": "MIT",
@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "icons": "node scripts/render-icons.mjs",
+    "store-images": "npm run build && node scripts/render-store-images.mjs",
     "package": "npm run build && cd build && zip -qr ../polite-tabs.zip . && cd .. && echo polite-tabs.zip",
     "format": "prettier --write ."
   },

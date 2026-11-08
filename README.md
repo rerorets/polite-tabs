@@ -55,6 +55,8 @@ npm run dev     # 変更のたびにビルドし直す
 npm test
 npm run lint
 npm run icons   # assets/icon.svg から PNG を書き出す（macOS の Chrome を使います）
+npm run store-images  # ストア用の画像を assets/store に書き出す（同上）
+npm run package # ストアに上げる zip を作る
 ```
 
 ビルドし直したら、`chrome://extensions` で拡張の更新ボタン（↻）を押します。
