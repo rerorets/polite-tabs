@@ -66,10 +66,11 @@ const removedByUser = (tab: chrome.tabs.Tab, url: string, placed: PlacedTabs, se
   !settings.restoreRemovedTabs && tab.groupId === NO_GROUP && placed[tab.id!] === url;
 
 /**
- * Group ids do not survive a browser restart or an extension update, so our own groups
- * come back looking like anyone else's. A group is taken back when its title is one of
- * our rule names and that rule has no group in the window yet; everything else is left
- * to whoever made it (the user, or another extension such as Claude in Chrome).
+ * Our record of which groups we own is wiped on a browser restart and on an extension
+ * reload or update, so our own groups come back looking like anyone else's. A group is
+ * taken back when its title is one of our rule names and that rule has no group in the
+ * window yet; everything else is left to whoever made it (the user, or another extension
+ * such as Claude in Chrome).
  */
 const reclaimGroup = async (group: chrome.tabGroups.TabGroup, rules: GroupRule[], owners: GroupOwners) => {
   if (!group.title) return undefined;
@@ -80,6 +81,24 @@ const reclaimGroup = async (group: chrome.tabGroups.TabGroup, rules: GroupRule[]
   owners[group.id] = rule.id;
   await saveGroupOwners(owners);
   return rule;
+};
+
+/**
+ * The rule's group in the window. When we own none, a group that `reclaimGroup` would
+ * take back is taken back here, so a tab handled before that group's own tabs joins it
+ * instead of starting a second group with the same name.
+ */
+const findOrReclaimRuleGroup = async (windowId: number, rule: GroupRule, owners: GroupOwners) => {
+  const groups = await chrome.tabGroups.query({ windowId });
+  const owned = groups.find((g) => owners[g.id] === rule.id);
+  if (owned) return owned;
+  const unclaimed = groups.find(
+    (g) => owners[g.id] === undefined && g.title !== undefined && baseGroupTitle(g.title) === rule.name
+  );
+  if (!unclaimed) return undefined;
+  owners[unclaimed.id] = rule.id;
+  await saveGroupOwners(owners);
+  return unclaimed;
 };
 
 export const refreshGroupAppearance = async (groupId: number, rule: GroupRule, rules: GroupRule[]) => {
@@ -135,7 +154,7 @@ export const handleTab = async (tabId: number, options: HandleOptions = {}): Pro
   if (currentRuleId === rule.id) {
     groupId = tab.groupId;
   } else {
-    const target = await findRuleGroup(tab.windowId, rule.id, owners);
+    const target = await findOrReclaimRuleGroup(tab.windowId, rule, owners);
     if (target) {
       groupId = await chrome.tabs.group({ groupId: target.id, tabIds: tabId });
     } else {
