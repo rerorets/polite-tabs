@@ -66,20 +66,48 @@ const removedByUser = (tab: chrome.tabs.Tab, url: string, placed: PlacedTabs, se
   !settings.restoreRemovedTabs && tab.groupId === NO_GROUP && placed[tab.id!] === url;
 
 /**
- * Group ids do not survive a browser restart or an extension update, so our own groups
- * come back looking like anyone else's. A group is taken back when its title is one of
- * our rule names and that rule has no group in the window yet; everything else is left
- * to whoever made it (the user, or another extension such as Claude in Chrome).
+ * Our record of which groups we own is wiped on a browser restart and on an extension
+ * reload or update, so our own groups come back looking like anyone else's. A group
+ * titled with one of our rule names is therefore treated as ours: the first such group
+ * is taken back when the rule has none in the window, and the tabs of any others are
+ * moved into the rule's group, so a duplicate left by an earlier mix-up disappears.
+ * Groups with other titles are left to whoever made them (the user, or another
+ * extension such as Claude in Chrome).
+ *
+ * Returns true when it moved tabs, as their group ids are then out of date.
  */
-const reclaimGroup = async (group: chrome.tabGroups.TabGroup, rules: GroupRule[], owners: GroupOwners) => {
-  if (!group.title) return undefined;
-  const rule = rules.find((r) => r.name === baseGroupTitle(group.title!));
-  if (!rule) return undefined;
-  if (await findRuleGroup(group.windowId, rule.id, owners)) return undefined;
+const adoptLookalikes = async (windowId: number, rules: GroupRule[], owners: GroupOwners) => {
+  const groups = await chrome.tabGroups.query({ windowId });
+  const lookalikes = groups.filter((g) => owners[g.id] === undefined && g.title);
+  if (lookalikes.length === 0) return false;
 
-  owners[group.id] = rule.id;
-  await saveGroupOwners(owners);
-  return rule;
+  const tabs = await chrome.tabs.query({ windowId });
+  const tabsOf = (groupId: number) => tabs.filter((t) => t.groupId === groupId && t.id !== undefined);
+  let moved = false;
+  for (const rule of rules) {
+    // Re-checks ownership: an earlier rule with the same name may have just taken one.
+    const same = lookalikes.filter(
+      (g) => owners[g.id] === undefined && baseGroupTitle(g.title!) === rule.name
+    );
+    if (same.length === 0) continue;
+
+    let target = groups.find((g) => owners[g.id] === rule.id);
+    if (!target) {
+      // Keep the biggest one so the fewest tabs move.
+      target = same.reduce((a, b) => (tabsOf(b.id).length > tabsOf(a.id).length ? b : a));
+      owners[target.id] = rule.id;
+      await saveGroupOwners(owners);
+    }
+    for (const group of same) {
+      if (group.id === target.id) continue;
+      const [first, ...rest] = tabsOf(group.id).map((t) => t.id!);
+      if (first === undefined) continue;
+      await chrome.tabs.group({ groupId: target.id, tabIds: [first, ...rest] });
+      moved = true;
+    }
+    await refreshGroupAppearance(target.id, rule, rules);
+  }
+  return moved;
 };
 
 export const refreshGroupAppearance = async (groupId: number, rule: GroupRule, rules: GroupRule[]) => {
@@ -105,7 +133,7 @@ export interface HandleOptions {
 export const handleTab = async (tabId: number, options: HandleOptions = {}): Promise<number | undefined> => {
   const settings = await getSettings();
   if (settings.manualMode && !options.force) return undefined;
-  const tab = await getTab(tabId);
+  let tab = await getTab(tabId);
   if (!tab || tab.pinned) return undefined;
   const info = tabInfo(tab, options.url);
   if (!info) return undefined;
@@ -114,13 +142,14 @@ export const handleTab = async (tabId: number, options: HandleOptions = {}): Pro
   const owners = await getGroupOwners();
   const placed = await getPlacedTabs();
 
-  let currentRuleId = tab.groupId === NO_GROUP ? undefined : owners[tab.groupId];
-  if (tab.groupId !== NO_GROUP && currentRuleId === undefined) {
-    const group = await getGroup(tab.groupId);
-    const reclaimed = group && (await reclaimGroup(group, rules, owners));
-    if (!reclaimed) return undefined; // Someone else's group: never pull tabs out of it.
-    currentRuleId = reclaimed.id;
+  if (await adoptLookalikes(tab.windowId, rules, owners)) {
+    tab = await getTab(tabId);
+    if (!tab) return undefined;
   }
+
+  const currentRuleId = tab.groupId === NO_GROUP ? undefined : owners[tab.groupId];
+  // Someone else's group: never pull tabs out of it.
+  if (tab.groupId !== NO_GROUP && currentRuleId === undefined) return undefined;
 
   if (!options.force && removedByUser(tab, info.url, placed, settings)) return undefined;
 

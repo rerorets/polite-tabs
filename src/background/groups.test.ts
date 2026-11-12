@@ -51,15 +51,84 @@ describe('handleTab', () => {
     expect(fake.groups).toHaveLength(1);
   });
 
-  it('does not take back a same-named group when the rule already has one in the window', async () => {
+  it('takes back its own group when a tab outside it is handled first after a restart', async () => {
     fake.addTab({ id: 1, url: 'https://github.com/a' });
     fake.addTab({ id: 2, url: 'https://github.com/b' });
+    const restored = fake.addForeignGroup('dev (14)', [1]);
+
+    await handleTab(2);
     await handleTab(1);
-    const lookalike = fake.addForeignGroup('dev', [2]);
+
+    expect(fake.groupOf(2)?.id).toBe(restored);
+    expect(fake.groupOf(1)?.id).toBe(restored);
+    expect(fake.groups).toHaveLength(1);
+  });
+
+  it('does not start a second group when the last tab of its own group is dragged out', async () => {
+    // A duplicate left by an older version: our one-tab group next to a restored one.
+    fake.addTab({ id: 1, url: 'https://github.com/a' });
+    fake.addTab({ id: 2, url: 'https://github.com/b' });
+    await handleTab(2);
+    const restored = fake.addForeignGroup('dev (14)', [1]);
+
+    // Mid-drag the tab sits outside any group, and Chrome has removed the emptied group.
+    userUngroups(2);
+    await handleTab(2);
+
+    expect(fake.groupOf(2)?.id).toBe(restored);
+    expect(fake.groups).toHaveLength(1);
+  });
+
+  it('takes back its own group instead of waiting for a second tab when skipSingleTabGroups is on', async () => {
+    await useSettings({ skipSingleTabGroups: true });
+    fake.addTab({ id: 1, url: 'https://github.com/a' });
+    fake.addTab({ id: 2, url: 'https://github.com/b' });
+    const restored = fake.addForeignGroup('dev', [1]);
 
     await handleTab(2);
 
-    expect(fake.groupOf(2)?.id).toBe(lookalike);
+    expect(fake.groupOf(2)?.id).toBe(restored);
+  });
+
+  it('moves the tabs of a same-named group into its own group for that rule', async () => {
+    fake.addTab({ id: 1, url: 'https://github.com/a' });
+    fake.addTab({ id: 2, url: 'https://github.com/b' });
+    fake.addTab({ id: 3, url: 'https://example.com/' });
+    await handleTab(1);
+    const own = fake.groupOf(1)!.id;
+    fake.addForeignGroup('dev (2)', [2, 3]);
+
+    // Any tab in the window will do; the duplicate need not be the one handled.
+    fake.addTab({ id: 4, url: 'https://example.com/other' });
+    await handleTab(4);
+
+    expect(fake.groupOf(2)?.id).toBe(own);
+    expect(fake.groupOf(3)?.id).toBe(own);
+    expect(fake.groups).toHaveLength(1);
+  });
+
+  it('keeps the biggest of several same-named groups when it owns none of them', async () => {
+    fake.addTab({ id: 1, url: 'https://github.com/a' });
+    fake.addTab({ id: 2, url: 'https://github.com/b' });
+    fake.addTab({ id: 3, url: 'https://github.com/c' });
+    fake.addForeignGroup('dev', [1]);
+    const big = fake.addForeignGroup('dev (2)', [2, 3]);
+
+    await handleTab(1);
+
+    expect(fake.groupOf(1)?.id).toBe(big);
+    expect(fake.groups).toHaveLength(1);
+  });
+
+  it('leaves groups in other windows alone', async () => {
+    fake.addTab({ id: 1, url: 'https://github.com/a' });
+    fake.addTab({ id: 2, url: 'https://github.com/b', windowId: 2 });
+    const elsewhere = fake.addForeignGroup('dev', [2]);
+
+    await handleTab(1);
+
+    expect(fake.groupOf(1)?.id).not.toBe(elsewhere);
+    expect(fake.groupOf(2)?.id).toBe(elsewhere);
   });
 
   it('moves a tab to another of its own groups when the URL changes, and ungroups when nothing matches', async () => {
